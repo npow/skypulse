@@ -6,6 +6,8 @@ Real-time global flight tracker on an interactive 3D globe. Watch thousands of a
 
 ![SkyPulse](https://img.shields.io/badge/aircraft-~6%2C000%2B_live-blue) ![No Server](https://img.shields.io/badge/server-none_needed-green) ![Vanilla JS](https://img.shields.io/badge/stack-vanilla_JS-yellow)
 
+![SkyPulse Screenshot](skypulse.png)
+
 ## Features
 
 - **3D Globe** — Night Earth texture, starfield, atmosphere glow, smooth auto-rotation
