@@ -367,7 +367,7 @@
 
   // --- Constants ---
   const ADSB_URL = 'https://api.adsb.lol/v2/lat/0/lon/0/dist/99999';
-  const CORS_PROXY = url => `https://api.codetabs.com/v1/proxy?quest=${url}`;
+  const CORS_PROXY = url => `https://api.codetabs.com/v1/proxy/?quest=${url}`;
   // Try direct first (works on localhost / file://), fall back to CORS proxy
   const API_URLS = [ADSB_URL, CORS_PROXY(ADSB_URL)];
   const POLL_INTERVAL = 5000;
@@ -441,7 +441,7 @@
     .pointAltitude(d => altitudeOffset(d.alt_baro))
     .pointColor(d => altitudeColor(d.alt_baro))
     .pointRadius(0.18)
-    .pointsMerge(false)
+    .pointsMerge(true)
     .pointsTransitionDuration(2000)
     .pointLabel(d => {
       const callsign = (d.flight || '').trim() || d.hex;
