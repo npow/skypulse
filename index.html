@@ -366,7 +366,13 @@
   'use strict';
 
   // --- Constants ---
-  const API_URL = 'https://api.adsb.lol/v2/lat/0/lon/0/dist/99999';
+  const ADSB_URL = 'https://api.adsb.lol/v2/lat/0/lon/0/dist/99999';
+  const CORS_PROXIES = [
+    url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+    url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  ];
+  // Try direct first (works on localhost / file://), fall back to CORS proxies
+  const API_URLS = [ADSB_URL, ...CORS_PROXIES.map(fn => fn(ADSB_URL))];
   const POLL_INTERVAL = 5000;
   const EARTH_RADIUS_KM = 6371;
   const MAX_ALT_FT = 45000;
@@ -481,34 +487,40 @@
   handleResize();
 
   // --- Data Fetching ---
+  let workingApiUrl = null;
+
   async function fetchAircraftData() {
-    try {
-      const resp = await fetch(API_URL);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const json = await resp.json();
-      const ac = (json.ac || []).filter(a => a.lat != null && a.lon != null);
-      aircraftData = ac;
-      lastUpdate = new Date();
+    // If we found a working URL before, try it first
+    const urls = workingApiUrl ? [workingApiUrl, ...API_URLS.filter(u => u !== workingApiUrl)] : API_URLS;
 
-      // Update globe
-      world.pointsData(ac);
+    for (const url of urls) {
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) continue;
+        const json = await resp.json();
+        const ac = (json.ac || []).filter(a => a.lat != null && a.lon != null);
+        if (ac.length === 0) continue;
 
-      // Update stats
-      statCount.textContent = ac.length.toLocaleString();
-      statUpdated.textContent = lastUpdate.toLocaleTimeString();
+        workingApiUrl = url;
+        aircraftData = ac;
+        lastUpdate = new Date();
 
-      // Hide loading overlay on first load
-      loadingOverlay.classList.add('hidden');
+        world.pointsData(ac);
+        statCount.textContent = ac.length.toLocaleString();
+        statUpdated.textContent = lastUpdate.toLocaleTimeString();
+        loadingOverlay.classList.add('hidden');
 
-      // Refresh detail panel if one is selected
-      if (selectedHex) {
-        const updated = ac.find(a => a.hex === selectedHex);
-        if (updated) showDetailPanel(updated);
+        if (selectedHex) {
+          const updated = ac.find(a => a.hex === selectedHex);
+          if (updated) showDetailPanel(updated);
+        }
+        return;
+      } catch (err) {
+        console.warn(`Fetch failed for ${url.slice(0, 60)}...`, err.message);
       }
-    } catch (err) {
-      console.error('Fetch error:', err);
-      statUpdated.textContent = 'Error';
     }
+    console.error('All API endpoints failed');
+    statUpdated.textContent = 'Error';
   }
 
   // --- Polling & Countdown ---
