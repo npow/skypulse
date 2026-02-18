@@ -360,6 +360,7 @@
 <!-- Globe Container -->
 <div id="globe-container"></div>
 
+<script src="https://unpkg.com/three@0.170.0/build/three.min.js"></script>
 <script src="https://unpkg.com/globe.gl@2.45.0/dist/globe.gl.min.js"></script>
 <script>
 (function() {
@@ -430,31 +431,158 @@
     return ((alt || 0) / MAX_ALT_FT) * ALT_SCALE;
   }
 
+  // --- Dot texture (glowing circle) ---
+  function createDotTexture() {
+    const size = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const half = size / 2;
+    const gradient = ctx.createRadialGradient(half, half, 0, half, half, half);
+    gradient.addColorStop(0, 'rgba(255,255,255,1)');
+    gradient.addColorStop(0.3, 'rgba(255,255,255,0.8)');
+    gradient.addColorStop(0.7, 'rgba(255,255,255,0.15)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.needsUpdate = true;
+    return tex;
+  }
+  const dotTexture = createDotTexture();
+
   // --- Globe Setup ---
+  const GLOBE_RADIUS = 100; // three-globe default
+
+  function latLngToVec3(lat, lng, alt) {
+    const phi = (90 - lat) * Math.PI / 180;
+    const theta = (lng + 180) * Math.PI / 180;
+    const r = GLOBE_RADIUS * (1 + (alt || 0));
+    return new THREE.Vector3(
+      -r * Math.sin(phi) * Math.cos(theta),
+      r * Math.cos(phi),
+      r * Math.sin(phi) * Math.sin(theta)
+    );
+  }
+
   const world = Globe()
     .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-night.jpg')
     .backgroundImageUrl('https://unpkg.com/three-globe/example/img/night-sky.png')
     .atmosphereColor('#3a7bd5')
     .atmosphereAltitude(0.18)
-    .pointsData([])
-    .pointLat(d => d.lat)
-    .pointLng(d => d.lon)
-    .pointAltitude(d => altitudeOffset(d.alt_baro))
-    .pointColor(d => altitudeColor(d.alt_baro))
-    .pointRadius(0.18)
-    .pointsMerge(true)
-    .pointsTransitionDuration(0)
-    .pointLabel(d => {
-      const callsign = (d.flight || '').trim() || d.hex;
-      const alt = d.alt_baro != null ? `${Math.round(d.alt_baro).toLocaleString()} ft` : '?';
-      const spd = d.gs != null ? `${Math.round(d.gs)} kts` : '?';
-      return `<div class="aircraft-tooltip">
-        <div class="tooltip-callsign">${callsign}</div>
-        <div class="tooltip-info">${alt} &bull; ${spd}</div>
-      </div>`;
-    })
-    .onPointClick(d => selectAircraft(d))
     (globeContainer);
+
+  // --- Custom particle system for aircraft ---
+  const particleSystem = { points: null, data: [] };
+
+  function buildParticles(aircraft) {
+    // Remove old particles
+    if (particleSystem.points) {
+      world.scene().remove(particleSystem.points);
+      particleSystem.points.geometry.dispose();
+      particleSystem.points.material.dispose();
+    }
+    particleSystem.data = aircraft;
+
+    if (aircraft.length === 0) return;
+
+    const count = aircraft.length;
+    const positions = new Float32Array(count * 3);
+    const colors = new Float32Array(count * 3);
+    const sizes = new Float32Array(count);
+    const tmpColor = new THREE.Color();
+
+    for (let i = 0; i < count; i++) {
+      const ac = aircraft[i];
+      const pos = latLngToVec3(ac.lat, ac.lon, altitudeOffset(ac.alt_baro));
+      positions[i * 3] = pos.x;
+      positions[i * 3 + 1] = pos.y;
+      positions[i * 3 + 2] = pos.z;
+
+      tmpColor.setStyle(altitudeColor(ac.alt_baro));
+      colors[i * 3] = tmpColor.r;
+      colors[i * 3 + 1] = tmpColor.g;
+      colors[i * 3 + 2] = tmpColor.b;
+
+      sizes[i] = 1.5;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    const material = new THREE.PointsMaterial({
+      map: dotTexture,
+      size: 2.5,
+      sizeAttenuation: true,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+
+    particleSystem.points = new THREE.Points(geometry, material);
+    world.scene().add(particleSystem.points);
+  }
+
+  // --- Raycasting for hover/click ---
+  const raycaster = new THREE.Raycaster();
+  raycaster.params.Points.threshold = 1.5;
+  const mouse = new THREE.Vector2();
+  let hoveredAc = null;
+
+  const tooltip = document.createElement('div');
+  tooltip.className = 'aircraft-tooltip';
+  tooltip.style.cssText = 'position:fixed;pointer-events:none;z-index:300;display:none;';
+  document.body.appendChild(tooltip);
+
+  function getIntersectedAircraft(event) {
+    const rect = globeContainer.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    const camera = world.camera();
+    raycaster.setFromCamera(mouse, camera);
+
+    if (!particleSystem.points) return null;
+    const intersects = raycaster.intersectObject(particleSystem.points);
+    if (intersects.length > 0) {
+      const idx = intersects[0].index;
+      return particleSystem.data[idx] || null;
+    }
+    return null;
+  }
+
+  globeContainer.addEventListener('mousemove', (e) => {
+    const ac = getIntersectedAircraft(e);
+    if (ac) {
+      hoveredAc = ac;
+      const callsign = (ac.flight || '').trim() || ac.hex;
+      const alt = ac.alt_baro != null ? `${Math.round(ac.alt_baro).toLocaleString()} ft` : '?';
+      const spd = ac.gs != null ? `${Math.round(ac.gs)} kts` : '?';
+      tooltip.innerHTML = `<div class="tooltip-callsign">${callsign}</div><div class="tooltip-info">${alt} &bull; ${spd}</div>`;
+      tooltip.style.display = 'block';
+      tooltip.style.left = (e.clientX + 14) + 'px';
+      tooltip.style.top = (e.clientY + 14) + 'px';
+      globeContainer.style.cursor = 'pointer';
+    } else {
+      hoveredAc = null;
+      tooltip.style.display = 'none';
+      globeContainer.style.cursor = 'grab';
+    }
+  });
+
+  globeContainer.addEventListener('click', (e) => {
+    const ac = getIntersectedAircraft(e);
+    if (ac) {
+      selectAircraft(ac);
+    } else if (detailPanel.classList.contains('open')) {
+      closeDetailPanel();
+    }
+  });
 
   // Auto-rotate
   const controls = world.controls();
@@ -508,7 +636,7 @@
           .slice(0, MAX_AIRCRAFT);
         lastUpdate = new Date();
 
-        world.pointsData(airborne);
+        buildParticles(airborne);
         statCount.textContent = `${airborne.length.toLocaleString()} / ${allAc.length.toLocaleString()}`;
         statUpdated.textContent = lastUpdate.toLocaleTimeString();
         loadingOverlay.classList.add('hidden');
@@ -632,12 +760,6 @@
 
   detailClose.addEventListener('click', closeDetailPanel);
 
-  // Close panel on clicking globe (but not on points)
-  world.onGlobeClick(() => {
-    if (detailPanel.classList.contains('open')) {
-      closeDetailPanel();
-    }
-  });
 
   // --- Search ---
   let searchDebounce = null;
