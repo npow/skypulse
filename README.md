@@ -2,6 +2,8 @@
 
 Real-time global flight tracker on an interactive 3D globe. Watch thousands of aircraft move across the planet, live in your browser.
 
+**[Live Demo](https://npow.github.io/skypulse/)**
+
 ![SkyPulse](https://img.shields.io/badge/aircraft-~6%2C000%2B_live-blue) ![No Server](https://img.shields.io/badge/server-none_needed-green) ![Vanilla JS](https://img.shields.io/badge/stack-vanilla_JS-yellow)
 
 ## Features
