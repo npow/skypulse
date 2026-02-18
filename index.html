@@ -367,12 +367,9 @@
 
   // --- Constants ---
   const ADSB_URL = 'https://api.adsb.lol/v2/lat/0/lon/0/dist/99999';
-  const CORS_PROXIES = [
-    url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
-    url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  ];
-  // Try direct first (works on localhost / file://), fall back to CORS proxies
-  const API_URLS = [ADSB_URL, ...CORS_PROXIES.map(fn => fn(ADSB_URL))];
+  const CORS_PROXY = url => `https://api.codetabs.com/v1/proxy?quest=${url}`;
+  // Try direct first (works on localhost / file://), fall back to CORS proxy
+  const API_URLS = [ADSB_URL, CORS_PROXY(ADSB_URL)];
   const POLL_INTERVAL = 5000;
   const EARTH_RADIUS_KM = 6371;
   const MAX_ALT_FT = 45000;
