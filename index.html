@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Real-Time Global Flight Tracker</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  #globe-container { width: 100vw; height: 100vh; }
+
+  /* Stats Bar - top left */
+  #stats-bar {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    background: rgba(10, 10, 30, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(100, 140, 255, 0.25);
+    border-radius: 12px;
+    padding: 12px 18px;
+    z-index: 100;
+    min-width: 200px;
+    font-size: 13px;
+  }
+  #stats-bar .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 0;
+  }
+  #stats-bar .stat-label { color: #8899bb; }
+  #stats-bar .stat-value { color: #fff; font-weight: 600; }
+  .live-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #4f4;
+    font-weight: 700;
+    font-size: 12px;
+  }
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    background: #4f4;
+    border-radius: 50%;
+    animation: pulse-live 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse-live {
+    0%, 100% { opacity: 1; box-shadow: 0 0 4px #4f4; }
+    50% { opacity: 0.4; box-shadow: 0 0 12px #4f4; }
+  }
+
+  /* Search Bar - top center */
+  #search-container {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    width: 340px;
+  }
+  #search-input {
+    width: 100%;
+    padding: 10px 16px 10px 40px;
+    background: rgba(10, 10, 30, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(100, 140, 255, 0.25);
+    border-radius: 12px;
+    color: #fff;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  #search-input:focus {
+    border-color: rgba(100, 140, 255, 0.6);
+  }
+  #search-input::placeholder { color: #667; }
+  #search-icon {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #667;
+    font-size: 16px;
+    pointer-events: none;
+  }
+  #search-results {
+    margin-top: 4px;
+    background: rgba(10, 10, 30, 0.92);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(100, 140, 255, 0.25);
+    border-radius: 10px;
+    max-height: 260px;
+    overflow-y: auto;
+    display: none;
+  }
+  .search-result-item {
+    padding: 10px 16px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    transition: background 0.15s;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .search-result-item:hover { background: rgba(100, 140, 255, 0.15); }
+  .search-result-item:last-child { border-bottom: none; }
+  .search-callsign { font-weight: 600; color: #fff; }
+  .search-meta { font-size: 12px; color: #889; }
+
+  /* Detail Panel - right sidebar */
+  #detail-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 340px;
+    height: 100vh;
+    background: rgba(8, 8, 28, 0.92);
+    backdrop-filter: blur(16px);
+    border-left: 1px solid rgba(100, 140, 255, 0.2);
+    z-index: 200;
+    transform: translateX(100%);
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow-y: auto;
+    padding: 20px;
+  }
+  #detail-panel.open { transform: translateX(0); }
+  #detail-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 32px;
+    height: 32px;
+    background: rgba(255,255,255,0.08);
+    border: none;
+    border-radius: 8px;
+    color: #aaa;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+  }
+  #detail-close:hover { background: rgba(255,255,255,0.15); color: #fff; }
+  #detail-header {
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  #detail-callsign {
+    font-size: 28px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 1px;
+  }
+  #detail-type { font-size: 14px; color: #889; margin-top: 4px; }
+  .detail-section {
+    margin-bottom: 16px;
+  }
+  .detail-section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #5577aa;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .detail-field {
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    padding: 8px 10px;
+  }
+  .detail-field-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #667;
+    margin-bottom: 2px;
+  }
+  .detail-field-value {
+    font-size: 15px;
+    font-weight: 600;
+    color: #dde;
+  }
+  .detail-field.full-width { grid-column: 1 / -1; }
+  .badge-military {
+    display: inline-block;
+    background: rgba(255, 80, 80, 0.2);
+    color: #f66;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-left: 8px;
+    letter-spacing: 0.5px;
+  }
+  .badge-emergency {
+    display: inline-block;
+    background: rgba(255, 40, 40, 0.3);
+    color: #f44;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-left: 8px;
+    letter-spacing: 0.5px;
+    animation: pulse-live 1s ease-in-out infinite;
+  }
+
+  /* Altitude legend - bottom left */
+  #altitude-legend {
+    position: fixed;
+    bottom: 16px;
+    left: 16px;
+    background: rgba(10, 10, 30, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(100, 140, 255, 0.25);
+    border-radius: 12px;
+    padding: 12px 16px;
+    z-index: 100;
+    font-size: 11px;
+  }
+  #altitude-legend .legend-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #5577aa;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .legend-bar {
+    width: 160px;
+    height: 10px;
+    border-radius: 5px;
+    background: linear-gradient(to right, #2196F3, #4CAF50, #FFEB3B, #FF9800, #f44336);
+    margin-bottom: 4px;
+  }
+  .legend-labels {
+    display: flex;
+    justify-content: space-between;
+    color: #778;
+    font-size: 10px;
+  }
+
+  /* Tooltip */
+  .aircraft-tooltip {
+    background: rgba(10, 10, 30, 0.92);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(100, 140, 255, 0.3);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    pointer-events: none;
+    line-height: 1.5;
+  }
+  .tooltip-callsign { font-weight: 700; color: #fff; font-size: 14px; }
+  .tooltip-info { color: #99aabb; font-size: 12px; }
+
+  /* Loading overlay */
+  #loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    transition: opacity 0.5s;
+  }
+  #loading-overlay.hidden { opacity: 0; pointer-events: none; }
+  .loading-spinner {
+    width: 48px;
+    height: 48px;
+    border: 3px solid rgba(100,140,255,0.2);
+    border-top-color: #6688ff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading-text { color: #8899bb; font-size: 14px; }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(100,140,255,0.3); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay">
+  <div class="loading-spinner"></div>
+  <div id="loading-text">Loading flight data...</div>
+</div>
+
+<!-- Stats Bar -->
+<div id="stats-bar">
+  <div class="stat-row">
+    <span class="stat-label">Aircraft</span>
+    <span class="stat-value" id="stat-count">--</span>
+  </div>
+  <div class="stat-row">
+    <span class="stat-label">Status</span>
+    <span class="live-indicator"><span class="live-dot"></span> LIVE</span>
+  </div>
+  <div class="stat-row">
+    <span class="stat-label">Updated</span>
+    <span class="stat-value" id="stat-updated">--</span>
+  </div>
+  <div class="stat-row">
+    <span class="stat-label">Next refresh</span>
+    <span class="stat-value" id="stat-countdown">5s</span>
+  </div>
+</div>
+
+<!-- Search Bar -->
+<div id="search-container">
+  <span id="search-icon">&#128269;</span>
+  <input type="text" id="search-input" placeholder="Search callsign, registration, hex, type..." autocomplete="off" />
+  <div id="search-results"></div>
+</div>
+
+<!-- Detail Panel -->
+<div id="detail-panel">
+  <button id="detail-close">&times;</button>
+  <div id="detail-header">
+    <div id="detail-callsign">--</div>
+    <div id="detail-type">--</div>
+  </div>
+  <div id="detail-content"></div>
+</div>
+
+<!-- Altitude Legend -->
+<div id="altitude-legend">
+  <div class="legend-title">Altitude</div>
+  <div class="legend-bar"></div>
+  <div class="legend-labels">
+    <span>GND</span>
+    <span>FL450</span>
+  </div>
+</div>
+
+<!-- Globe Container -->
+<div id="globe-container"></div>
+
+<script src="https://unpkg.com/globe.gl@2.35.2/dist/globe.gl.min.js"></script>
+<script>
+(function() {
+  'use strict';
+
+  // --- Constants ---
+  const API_URL = 'https://api.adsb.lol/v2/lat/0/lon/0/dist/99999';
+  const POLL_INTERVAL = 5000;
+  const EARTH_RADIUS_KM = 6371;
+  const MAX_ALT_FT = 45000;
+  const ALT_SCALE = 0.04; // altitude visual offset multiplier
+
+  // --- State ---
+  let aircraftData = [];
+  let selectedHex = null;
+  let lastUpdate = null;
+  let countdownTimer = null;
+  let nextRefreshAt = 0;
+  let isUserInteracting = false;
+  let interactionTimeout = null;
+
+  // --- DOM Elements ---
+  const globeContainer = document.getElementById('globe-container');
+  const loadingOverlay = document.getElementById('loading-overlay');
+  const statCount = document.getElementById('stat-count');
+  const statUpdated = document.getElementById('stat-updated');
+  const statCountdown = document.getElementById('stat-countdown');
+  const searchInput = document.getElementById('search-input');
+  const searchResults = document.getElementById('search-results');
+  const detailPanel = document.getElementById('detail-panel');
+  const detailClose = document.getElementById('detail-close');
+  const detailCallsign = document.getElementById('detail-callsign');
+  const detailType = document.getElementById('detail-type');
+  const detailContent = document.getElementById('detail-content');
+
+  // --- Altitude Color Gradient ---
+  function altitudeColor(alt) {
+    const t = Math.max(0, Math.min(1, (alt || 0) / MAX_ALT_FT));
+    // blue → green → yellow → orange → red
+    const stops = [
+      [0.00, [33, 150, 243]],   // blue
+      [0.25, [76, 175, 80]],    // green
+      [0.50, [255, 235, 59]],   // yellow
+      [0.75, [255, 152, 0]],    // orange
+      [1.00, [244, 67, 54]],    // red
+    ];
+    let lower = stops[0], upper = stops[stops.length - 1];
+    for (let i = 0; i < stops.length - 1; i++) {
+      if (t >= stops[i][0] && t <= stops[i + 1][0]) {
+        lower = stops[i];
+        upper = stops[i + 1];
+        break;
+      }
+    }
+    const range = upper[0] - lower[0] || 1;
+    const f = (t - lower[0]) / range;
+    const r = Math.round(lower[1][0] + f * (upper[1][0] - lower[1][0]));
+    const g = Math.round(lower[1][1] + f * (upper[1][1] - lower[1][1]));
+    const b = Math.round(lower[1][2] + f * (upper[1][2] - lower[1][2]));
+    return `rgb(${r},${g},${b})`;
+  }
+
+  function altitudeOffset(alt) {
+    return ((alt || 0) / MAX_ALT_FT) * ALT_SCALE;
+  }
+
+  // --- Globe Setup ---
+  const world = Globe()
+    .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-night.jpg')
+    .backgroundImageUrl('https://unpkg.com/three-globe/example/img/night-sky.png')
+    .atmosphereColor('#3a7bd5')
+    .atmosphereAltitude(0.18)
+    .pointsData([])
+    .pointLat(d => d.lat)
+    .pointLng(d => d.lon)
+    .pointAltitude(d => altitudeOffset(d.alt_baro))
+    .pointColor(d => altitudeColor(d.alt_baro))
+    .pointRadius(0.18)
+    .pointsMerge(false)
+    .pointsTransitionDuration(2000)
+    .pointLabel(d => {
+      const callsign = (d.flight || '').trim() || d.hex;
+      const alt = d.alt_baro != null ? `${Math.round(d.alt_baro).toLocaleString()} ft` : '?';
+      const spd = d.gs != null ? `${Math.round(d.gs)} kts` : '?';
+      return `<div class="aircraft-tooltip">
+        <div class="tooltip-callsign">${callsign}</div>
+        <div class="tooltip-info">${alt} &bull; ${spd}</div>
+      </div>`;
+    })
+    .onPointClick(d => selectAircraft(d))
+    (globeContainer);
+
+  // Auto-rotate
+  const controls = world.controls();
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.3;
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.1;
+
+  // Pause auto-rotate on interaction
+  controls.addEventListener('start', () => {
+    isUserInteracting = true;
+    controls.autoRotate = false;
+    clearTimeout(interactionTimeout);
+  });
+  controls.addEventListener('end', () => {
+    interactionTimeout = setTimeout(() => {
+      isUserInteracting = false;
+      controls.autoRotate = true;
+    }, 8000);
+  });
+
+  // Resize handler
+  function handleResize() {
+    world.width(window.innerWidth);
+    world.height(window.innerHeight);
+  }
+  window.addEventListener('resize', handleResize);
+  handleResize();
+
+  // --- Data Fetching ---
+  async function fetchAircraftData() {
+    try {
+      const resp = await fetch(API_URL);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json();
+      const ac = (json.ac || []).filter(a => a.lat != null && a.lon != null);
+      aircraftData = ac;
+      lastUpdate = new Date();
+
+      // Update globe
+      world.pointsData(ac);
+
+      // Update stats
+      statCount.textContent = ac.length.toLocaleString();
+      statUpdated.textContent = lastUpdate.toLocaleTimeString();
+
+      // Hide loading overlay on first load
+      loadingOverlay.classList.add('hidden');
+
+      // Refresh detail panel if one is selected
+      if (selectedHex) {
+        const updated = ac.find(a => a.hex === selectedHex);
+        if (updated) showDetailPanel(updated);
+      }
+    } catch (err) {
+      console.error('Fetch error:', err);
+      statUpdated.textContent = 'Error';
+    }
+  }
+
+  // --- Polling & Countdown ---
+  function startPolling() {
+    fetchAircraftData();
+    nextRefreshAt = Date.now() + POLL_INTERVAL;
+    setInterval(() => {
+      fetchAircraftData();
+      nextRefreshAt = Date.now() + POLL_INTERVAL;
+    }, POLL_INTERVAL);
+
+    // Countdown display
+    setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((nextRefreshAt - Date.now()) / 1000));
+      statCountdown.textContent = `${remaining}s`;
+    }, 250);
+  }
+
+  // --- Detail Panel ---
+  function selectAircraft(ac) {
+    selectedHex = ac.hex;
+    showDetailPanel(ac);
+    detailPanel.classList.add('open');
+
+    // Fly to aircraft
+    world.pointOfView({
+      lat: ac.lat,
+      lng: ac.lon,
+      altitude: 1.5
+    }, 1200);
+
+    controls.autoRotate = false;
+    clearTimeout(interactionTimeout);
+    interactionTimeout = setTimeout(() => {
+      if (!detailPanel.classList.contains('open')) {
+        controls.autoRotate = true;
+      }
+    }, 15000);
+  }
+
+  function showDetailPanel(ac) {
+    const callsign = (ac.flight || '').trim() || 'Unknown';
+    let badges = '';
+    if (ac.dbFlags & 1) badges += '<span class="badge-military">MIL</span>';
+    if (ac.emergency && ac.emergency !== 'none') badges += `<span class="badge-emergency">${ac.emergency.toUpperCase()}</span>`;
+
+    detailCallsign.innerHTML = callsign + badges;
+    detailType.textContent = [ac.t, ac.r].filter(Boolean).join(' \u2022 ');
+
+    const field = (label, value, fullWidth) =>
+      `<div class="detail-field${fullWidth ? ' full-width' : ''}">
+        <div class="detail-field-label">${label}</div>
+        <div class="detail-field-value">${value != null ? value : '--'}</div>
+      </div>`;
+
+    const section = (title, fields) =>
+      `<div class="detail-section">
+        <div class="detail-section-title">${title}</div>
+        <div class="detail-grid">${fields}</div>
+      </div>`;
+
+    const fmtAlt = v => v != null ? `${Math.round(v).toLocaleString()} ft` : '--';
+    const fmtSpd = v => v != null ? `${Math.round(v)} kts` : '--';
+    const fmtRate = v => v != null ? `${v > 0 ? '+' : ''}${Math.round(v)} ft/min` : '--';
+    const fmtDeg = v => v != null ? `${Math.round(v)}\u00b0` : '--';
+    const fmtPos = v => v != null ? v.toFixed(4) : '--';
+    const fmtMach = v => v != null ? `M ${v.toFixed(3)}` : '--';
+
+    detailContent.innerHTML =
+      section('Identification',
+        field('ICAO Hex', ac.hex) +
+        field('Registration', ac.r) +
+        field('Type', ac.t) +
+        field('Category', ac.category)
+      ) +
+      section('Position',
+        field('Latitude', fmtPos(ac.lat)) +
+        field('Longitude', fmtPos(ac.lon)) +
+        field('Baro Altitude', fmtAlt(ac.alt_baro)) +
+        field('Geo Altitude', fmtAlt(ac.alt_geom))
+      ) +
+      section('Movement',
+        field('Ground Speed', fmtSpd(ac.gs)) +
+        field('Track', fmtDeg(ac.track)) +
+        field('Vert Rate', fmtRate(ac.baro_rate)) +
+        field('Heading', fmtDeg(ac.nav_heading)) +
+        field('IAS', fmtSpd(ac.ias)) +
+        field('TAS', fmtSpd(ac.tas)) +
+        field('Mach', fmtMach(ac.mach))
+      ) +
+      section('Transponder',
+        field('Squawk', ac.squawk) +
+        field('Emergency', ac.emergency || 'none') +
+        field('RSSI', ac.rssi != null ? `${ac.rssi} dBFS` : '--') +
+        field('Last Seen', ac.seen != null ? `${ac.seen}s ago` : '--')
+      );
+  }
+
+  function closeDetailPanel() {
+    detailPanel.classList.remove('open');
+    selectedHex = null;
+    interactionTimeout = setTimeout(() => {
+      controls.autoRotate = true;
+    }, 3000);
+  }
+
+  detailClose.addEventListener('click', closeDetailPanel);
+
+  // Close panel on clicking globe (but not on points)
+  world.onGlobeClick(() => {
+    if (detailPanel.classList.contains('open')) {
+      closeDetailPanel();
+    }
+  });
+
+  // --- Search ---
+  let searchDebounce = null;
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(performSearch, 150);
+  });
+
+  searchInput.addEventListener('focus', () => {
+    if (searchInput.value.trim().length > 0) performSearch();
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!document.getElementById('search-container').contains(e.target)) {
+      searchResults.style.display = 'none';
+    }
+  });
+
+  function performSearch() {
+    const q = searchInput.value.trim().toUpperCase();
+    if (q.length === 0) {
+      searchResults.style.display = 'none';
+      return;
+    }
+
+    const matches = aircraftData.filter(a => {
+      const callsign = ((a.flight || '').trim()).toUpperCase();
+      const reg = (a.r || '').toUpperCase();
+      const hex = (a.hex || '').toUpperCase();
+      const type = (a.t || '').toUpperCase();
+      return callsign.includes(q) || reg.includes(q) || hex.includes(q) || type.includes(q);
+    }).slice(0, 20);
+
+    if (matches.length === 0) {
+      searchResults.innerHTML = '<div style="padding:12px 16px;color:#667;font-size:13px;">No matches found</div>';
+      searchResults.style.display = 'block';
+      return;
+    }
+
+    searchResults.innerHTML = matches.map(a => {
+      const callsign = (a.flight || '').trim() || a.hex;
+      const meta = [a.t, a.r].filter(Boolean).join(' \u2022 ');
+      return `<div class="search-result-item" data-hex="${a.hex}">
+        <span class="search-callsign">${callsign}</span>
+        <span class="search-meta">${meta}</span>
+      </div>`;
+    }).join('');
+
+    searchResults.style.display = 'block';
+
+    // Attach click handlers
+    searchResults.querySelectorAll('.search-result-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const hex = item.dataset.hex;
+        const ac = aircraftData.find(a => a.hex === hex);
+        if (ac) {
+          selectAircraft(ac);
+          searchResults.style.display = 'none';
+          searchInput.value = '';
+        }
+      });
+    });
+  }
+
+  // Enter key: fly to first match
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const firstItem = searchResults.querySelector('.search-result-item');
+      if (firstItem) firstItem.click();
+    }
+    if (e.key === 'Escape') {
+      searchInput.value = '';
+      searchResults.style.display = 'none';
+      searchInput.blur();
+    }
+  });
+
+  // --- Start ---
+  startPolling();
+})();
+</script>
+</body>
+</html>
