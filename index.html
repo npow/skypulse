@@ -370,10 +370,11 @@
   const CORS_PROXY = url => `https://api.codetabs.com/v1/proxy/?quest=${url}`;
   // Try direct first (works on localhost / file://), fall back to CORS proxy
   const API_URLS = [ADSB_URL, CORS_PROXY(ADSB_URL)];
-  const POLL_INTERVAL = 5000;
+  const POLL_INTERVAL = 10000;
   const EARTH_RADIUS_KM = 6371;
   const MAX_ALT_FT = 45000;
   const ALT_SCALE = 0.04; // altitude visual offset multiplier
+  const MAX_AIRCRAFT = 2500;
 
   // --- State ---
   let aircraftData = [];
@@ -442,7 +443,7 @@
     .pointColor(d => altitudeColor(d.alt_baro))
     .pointRadius(0.18)
     .pointsMerge(true)
-    .pointsTransitionDuration(2000)
+    .pointsTransitionDuration(0)
     .pointLabel(d => {
       const callsign = (d.flight || '').trim() || d.hex;
       const alt = d.alt_baro != null ? `${Math.round(d.alt_baro).toLocaleString()} ft` : '?';
@@ -495,15 +496,20 @@
         const resp = await fetch(url);
         if (!resp.ok) continue;
         const json = await resp.json();
-        const ac = (json.ac || []).filter(a => a.lat != null && a.lon != null);
-        if (ac.length === 0) continue;
+        const allAc = (json.ac || []).filter(a => a.lat != null && a.lon != null);
+        if (allAc.length === 0) continue;
 
+        // Keep all data for search, but only render airborne aircraft up to cap
         workingApiUrl = url;
-        aircraftData = ac;
+        aircraftData = allAc;
+        const airborne = allAc
+          .filter(a => a.alt_baro != null && a.alt_baro > 100)
+          .sort((a, b) => (b.alt_baro || 0) - (a.alt_baro || 0))
+          .slice(0, MAX_AIRCRAFT);
         lastUpdate = new Date();
 
-        world.pointsData(ac);
-        statCount.textContent = ac.length.toLocaleString();
+        world.pointsData(airborne);
+        statCount.textContent = `${airborne.length.toLocaleString()} / ${allAc.length.toLocaleString()}`;
         statUpdated.textContent = lastUpdate.toLocaleTimeString();
         loadingOverlay.classList.add('hidden');
 
