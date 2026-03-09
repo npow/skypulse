@@ -1,5 +1,7 @@
 # SkyPulse
 
+[![Docs](https://img.shields.io/badge/docs-mintlify-18a34a?style=flat-square)](https://mintlify.com/npow/skypulse)
+
 Real-time global flight tracker on an interactive 3D globe. Watch thousands of aircraft move across the planet, live in your browser.
 
 **[Live Demo](https://npow.github.io/skypulse/)**
